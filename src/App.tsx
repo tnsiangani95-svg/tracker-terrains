@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 
 // --- ICÔNES SVG INTÉGRÉES (Pour éviter les erreurs d'import) ---
 const Icons = {
