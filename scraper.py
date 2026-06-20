@@ -46,10 +46,11 @@ class PropertyScraperAndScorer:
                 "price": 3500000,
                 "location": "Aulnay-sous-Bois",
                 "department": "93",
-                "distanceParis": 12,
-                "timeGareDuNord": 15,
-                "highwayAccess": 1.0,
-                "residentialProximity": 450,
+                # CORRECTION : Tout en minuscules pour correspondre à PostgreSQL
+                "distanceparis": 12,
+                "timegaredunord": 15,
+                "highwayaccess": 1.0,
+                "residentialproximity": 450,
                 "constructible": True,
                 "description": "Trouvé aujourd'hui ! Belle friche isolée.",
                 "image": "https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80",
@@ -68,13 +69,13 @@ class PropertyScraperAndScorer:
     def calculate_score(self, prop):
         """Algorithme de notation (0 à 5 étoiles)"""
         score = 0.0
-        if prop['residentialProximity'] >= 500: score += 1.5
-        elif prop['residentialProximity'] >= 200: score += 0.8
+        if prop['residentialproximity'] >= 500: score += 1.5
+        elif prop['residentialproximity'] >= 200: score += 0.8
         
-        if prop['timeGareDuNord'] <= 30: score += 1.0
-        elif prop['timeGareDuNord'] <= 45: score += 0.5
+        if prop['timegaredunord'] <= 30: score += 1.0
+        elif prop['timegaredunord'] <= 45: score += 0.5
             
-        if prop['highwayAccess'] <= 2.0: score += 0.5
+        if prop['highwayaccess'] <= 2.0: score += 0.5
         if prop['constructible']: score += 1.0
             
         prix_m2 = prop['price'] / prop['surface_totale']
