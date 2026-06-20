@@ -1,10 +1,3 @@
 supabase
 requests
 beautifulsoup4
-
-**2. Mettre à jour le code sur GitHub :**
-Copiez le nouveau code de `scraper.py` (à droite) et remplacez l'ancien sur GitHub.
-
-### ⚠️ Une vérité importante sur le "Scraping" :
-Ce code est désormais **un véritable aspirateur d'annonces**. Cependant, les sites comme *BureauxLocaux* ou *Geolocaux* changent très souvent leur code HTML (ils modifient la classe de leurs boutons, l'emplacement du prix, etc.). Parfois même, ils bloquent les robots (Erreur 403).
-Si le robot ne ramène aucune annonce, cela signifie qu'il faudra "affiner" les lignes `soup.find_all(...)` du code Python pour qu'elles collent exactement à l'architecture du site visé le jour J. C'est le travail classique d'entretien d'un Scraper !
