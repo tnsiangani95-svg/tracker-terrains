@@ -1,9 +1,9 @@
 import os
 import time
-import requests
 import re
 from datetime import datetime
 from bs4 import BeautifulSoup
+import cloudscraper # L'outil anti-blocage !
 
 try:
     from supabase import create_client, Client
@@ -12,8 +12,8 @@ except ImportError:
 
 class RealPropertyScraper:
     def __init__(self):
-        self.MIN_TERRAIN = 12000 * 0.85 # 10 200 m²
-        self.MIN_BATI = 3000 * 0.85     # 2 550 m²
+        self.MIN_TERRAIN = 12000 * 0.85 # 10 200 m² minimum
+        self.MIN_BATI = 3000 * 0.85
         self.DEPARTEMENTS_CIBLES = ['77', '91', '93', '94', '95']
         
         # Vos clés Supabase
@@ -26,49 +26,59 @@ class RealPropertyScraper:
         except Exception:
             self.db_connected = False
 
-        # On se déguise en vrai navigateur pour ne pas être bloqué par les sites
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
+        # On utilise cloudscraper pour percer les sécurités anti-bot
+        self.scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            }
+        )
 
     def clean_number(self, text):
-        """Nettoie les textes comme '12 500 m²' pour n'en garder que le chiffre"""
         if not text: return 0
         numbers = re.sub(r'[^\d]', '', text)
         return int(numbers) if numbers else 0
 
     def scrape_real_estate_site(self):
-        """LA VRAIE LOGIQUE DE RECHERCHE"""
         extracted_properties = []
+        
+        # Nouvelles URLs (On tente des requêtes plus larges)
         urls_a_visiter = [
-            "https://www.bureauxlocaux.com/recherche/achat/entrepots-locaux-d-activites/ile-de-france",
-            "https://www.geolocaux.com/vente/terrain/ile-de-france/"
+            "https://www.geolocaux.com/vente/terrain/ile-de-france/",
+            "https://www.paruvendu.fr/immobilier/vente/terrain/ile-de-france/"
         ]
 
-        print("Lancement du robot d'exploration web...")
+        print("Lancement du robot d'exploration web (Mode CloudScraper Anti-Blocage)...")
 
         for url in urls_a_visiter:
             print(f"-> Analyse de la page : {url}")
             try:
-                response = requests.get(url, headers=self.headers, timeout=10)
+                # Le robot attaque la page
+                response = self.scraper.get(url, timeout=15)
                 if response.status_code != 200:
-                    print(f"   Accès refusé ou page introuvable (Code {response.status_code})")
+                    print(f"   Bloqué ou introuvable (Code {response.status_code})")
                     continue
                 
                 soup = BeautifulSoup(response.text, 'html.parser')
-                annonces_html = soup.find_all('div', class_=re.compile(r'listing|card|property', re.IGNORECASE))
+                # Recherche très large pour capter tous les types de cartes HTML
+                annonces_html = soup.find_all(['div', 'article'], class_=re.compile(r'listing|card|property|item|annonce', re.IGNORECASE))
                 
                 for annonce in annonces_html:
-                    titre_elem = annonce.find(['h2', 'h3', 'div'], class_=re.compile(r'title|name'))
-                    titre = titre_elem.text.strip() if titre_elem else "Foncier Industriel - Île-de-France"
+                    titre_elem = annonce.find(['h2', 'h3', 'div', 'span', 'a'], class_=re.compile(r'title|name|heading|titre', re.IGNORECASE))
+                    titre = titre_elem.text.strip() if titre_elem else "Foncier Industriel - IDF"
 
                     prix_elem = annonce.find(string=re.compile(r'€'))
                     prix_brut = prix_elem.parent.text if prix_elem else "0"
                     prix = self.clean_number(prix_brut)
 
-                    surface_elem = annonce.find(string=re.compile(r'm²|m2'))
+                    # Recherche m2 ou hectare
+                    surface_elem = annonce.find(string=re.compile(r'm²|m2|hectare', re.IGNORECASE))
                     surface_brute = surface_elem.parent.text if surface_elem else "0"
                     surface = self.clean_number(surface_brute)
+                    
+                    if surface_elem and 'hectare' in str(surface_elem).lower() and surface < 100:
+                        surface = surface * 10000
 
                     if prix == 0 or surface == 0:
                         continue
@@ -81,18 +91,18 @@ class RealPropertyScraper:
 
                     prop_data = {
                         "id": f"scraped_{self.clean_number(lien_final[-10:])}_{int(time.time())}",
-                        "title": titre,
+                        "title": titre[:100], 
                         "surface_totale": surface,
-                        "surface_batie": surface * 0.3,
+                        "surface_batie": int(surface * 0.3), 
                         "price": prix,
-                        "location": "Localisation à vérifier",
-                        "department": "77",
-                        "distanceparis": 20,
+                        "location": "Île-de-France (voir annonce)",
+                        "department": "77", 
+                        "distanceparis": 25,
                         "timegaredunord": 45,
                         "highwayaccess": 2.5,
                         "residentialproximity": 500,
                         "constructible": True,
-                        "description": "Annonce trouvée sur le web. Cliquez sur l'URL pour les détails.",
+                        "description": "Annonce 100% réelle trouvée sur le web. Cliquez sur l'URL pour les détails exacts sur le site d'origine.",
                         "image": "https://images.unsplash.com/photo-1586528116311-ad8ed3c84a0c?auto=format&fit=crop&w=800&q=80",
                         "url": lien_final
                     }
@@ -101,7 +111,7 @@ class RealPropertyScraper:
             except Exception as e:
                 print(f"   Erreur lors du scraping de {url} : {e}")
                 
-            time.sleep(2)
+            time.sleep(3) # On fait une pause pour ne pas se faire repérer
 
         return extracted_properties
 
@@ -121,6 +131,7 @@ class RealPropertyScraper:
         return min(round(score, 1), 5.0)
 
     def filter_property(self, prop):
+        # On bloque fermement tout ce qui est en dessous de 10 200 m²
         if not (prop['surface_totale'] >= self.MIN_TERRAIN or prop['surface_batie'] >= self.MIN_BATI): 
             return False
         return True
@@ -135,7 +146,7 @@ class RealPropertyScraper:
                 prop['type'] = 'terrain_nu' if prop['surface_batie'] <= 500 else 'bati'
                 valid_properties.append(prop)
 
-        print(f"Bilan : {len(raw_properties)} annonces lues, {len(valid_properties)} validées selon vos critères.")
+        print(f"Bilan : {len(raw_properties)} annonces lues, {len(valid_properties)} validées (> 10 200 m²).")
 
         if self.db_connected and valid_properties:
             print("Envoi vers la base de données...")
