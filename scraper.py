@@ -2,7 +2,7 @@ import os
 import math
 from datetime import datetime
 
-# Il faudra installer ce module sur le serveur : pip install supabase
+# Ce module sera installé automatiquement par GitHub Actions
 try:
     from supabase import create_client, Client
 except ImportError:
@@ -19,9 +19,9 @@ class PropertyScraperAndScorer:
         self.DEPARTEMENTS_CIBLES = ['77', '91', '93', '94', '95']
         
         # --- CONNEXION SUPABASE ---
-        # Remplacez ces valeurs par celles de vos Settings > API sur Supabase
-        self.SUPABASE_URL = "https://xfhtrugwsovgfcphbdsd.supabase.co/rest/v1/"
-        self.SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmaHRydWd3c292Z2ZjcGhiZHNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5ODA0OTMsImV4cCI6MjA5NzU1NjQ5M30.dS8EbRjDrsHukbOo3Gih81M58hCs86RMHJXVIb9U4mgVOTRE_CLE_ANON_PUBLIC"
+        # Clés nettoyées et corrigées
+        self.SUPABASE_URL = "https://xfhtrugwsovgfcphbdsd.supabase.co"
+        self.SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmaHRydWd3c292Z2ZjcGhiZHNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5ODA0OTMsImV4cCI6MjA5NzU1NjQ5M30.dS8EbRjDrsHukbOo3Gih81M58hCs86RMHJXVIb9U4mg"
         
         try:
             self.supabase: Client = create_client(self.SUPABASE_URL, self.SUPABASE_KEY)
@@ -53,14 +53,16 @@ class PropertyScraperAndScorer:
                 "constructible": True,
                 "description": "Trouvé aujourd'hui ! Belle friche isolée.",
                 "image": "https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80",
-                "url": "https://votre-site-source.com/annonce"
+                "url": "https://www.bureauxlocaux.com/recherche/achat/entrepots-locaux-d-activites/ile-de-france"
             }
         ]
 
     def filter_property(self, prop):
         """Filtre strict (Département et Surface)"""
-        if prop['department'] not in self.DEPARTEMENTS_CIBLES: return False
-        if not (prop['surface_totale'] >= self.MIN_TERRAIN or prop['surface_batie'] >= self.MIN_BATI): return False
+        if prop['department'] not in self.DEPARTEMENTS_CIBLES: 
+            return False
+        if not (prop['surface_totale'] >= self.MIN_TERRAIN or prop['surface_batie'] >= self.MIN_BATI): 
+            return False
         return True
 
     def calculate_score(self, prop):
@@ -103,6 +105,8 @@ class PropertyScraperAndScorer:
                 print("✅ Succès ! Les annonces sont dans la base de données.")
             except Exception as e:
                 print(f"❌ Erreur lors de l'envoi : {e}")
+        elif not self.db_connected:
+             print("❌ Annulation de l'envoi: Base de données non connectée.")
 
 if __name__ == "__main__":
     scorer = PropertyScraperAndScorer()
