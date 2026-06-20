@@ -1,6 +1,31 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 
-// --- ICÔNES SVG INTÉGRÉES (Pour éviter les erreurs d'import) ---
+// --- DÉFINITION DES TYPES ---
+interface Property {
+  id: string;
+  title: string;
+  type: string;
+  surface_totale: number;
+  surface_batie: number;
+  price: number;
+  location: string;
+  department: string;
+  distanceParis: number;
+  timeGareDuNord: number;
+  highwayAccess: number;
+  residentialProximity: number;
+  constructible: boolean;
+  score: number;
+  description: string;
+  image: string;
+  url: string;
+}
+
+// --- CONFIGURATION SUPABASE ---
+const SUPABASE_URL = "https://xfhtrugwsovgfcphbdsd.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmaHRydWd3c292Z2ZjcGhiZHNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5ODA0OTMsImV4cCI6MjA5NzU1NjQ5M30.dS8EbRjDrsHukbOo3Gih81M58hCs86RMHJXVIb9U4mg";
+
+// --- ICÔNES SVG INTÉGRÉES ---
 const Icons = {
   MapPin: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>,
   Train: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="16" height="16" x="4" y="3" rx="2"/><path d="M4 11h16"/><path d="M12 3v8"/><path d="m8 19-2 3"/><path d="m18 22-2-3"/><path d="M8 15h0"/><path d="M16 15h0"/></svg>,
@@ -18,101 +43,52 @@ const Icons = {
   Activity: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
 };
 
-// ... DONNÉES SIMULÉES ---
-const MOCK_PROPERTIES = [
-  {
-    id: 1,
-    title: "Ancien site logistique à réhabiliter - Zone d'activité",
-    type: "bati",
-    surface_totale: 14500,
-    surface_batie: 4200,
-    price: 3200000,
-    location: "Mitry-Mory",
-    department: "77",
-    distanceParis: 25,
-    timeGareDuNord: 35,
-    highwayAccess: 1.2,
-    residentialProximity: 600,
-    constructible: true,
-    score: 4.5,
-    description: "Vaste entrepôt logistique des années 80. Structure métallique en bon état. PLU favorable (Zone UX) permettant l'accueil de public après travaux. Grand parking existant.",
-    image: "https://images.unsplash.com/photo-1586528116311-ad8ed3c84a0c?auto=format&fit=crop&w=800&q=80",
-    url: "https://www.bureauxlocaux.com/recherche/achat/entrepots-locaux-d-activites/ile-de-france"
-  },
-  {
-    id: 2,
-    title: "Terrain industriel nu - Parc d'Affaires",
-    type: "terrain_nu",
-    surface_totale: 11000,
-    surface_batie: 0,
-    price: 1800000,
-    location: "Corbeil-Essonnes",
-    department: "91",
-    distanceParis: 35,
-    timeGareDuNord: 55,
-    highwayAccess: 3.5, 
-    residentialProximity: 150,
-    constructible: true,
-    score: 3.2,
-    description: "Parcelle viabilisée prête à construire. Attention: proximité immédiate avec un nouveau lotissement résidentiel à l'Est de la parcelle.",
-    image: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=80",
-    url: "https://www.geolocaux.com/vente/terrain/ile-de-france/"
-  },
-  {
-    id: 3,
-    title: "Friche industrielle majeure (Ex-usine textile)",
-    type: "bati",
-    surface_totale: 22000,
-    surface_batie: 8500,
-    price: 4500000,
-    location: "Gonesse",
-    department: "95",
-    distanceParis: 15,
-    timeGareDuNord: 25,
-    highwayAccess: 0.5,
-    residentialProximity: 800,
-    constructible: true,
-    score: 4.8,
-    description: "Opportunité rare. Immense friche totalement isolée des zones d'habitation. Hauteur sous plafond de 8 mètres dans la nef principale (idéal Sanctuaire). Bâtiment annexe parfait pour la résidence.",
-    image: "https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80",
-    url: "https://www.arthur-loyd.com/immobilier-entreprise/vente/locaux-d-activites-entrepots/ile-de-france"
-  },
-  {
-    id: 4,
-    title: "Ancien centre technique municipal déclassé",
-    type: "bati",
-    surface_totale: 12500,
-    surface_batie: 3100,
-    price: 2900000,
-    location: "Vitry-sur-Seine",
-    department: "94",
-    distanceParis: 8,
-    timeGareDuNord: 40,
-    highwayAccess: 2.0,
-    residentialProximity: 50,
-    constructible: false,
-    score: 2.1,
-    description: "Vente par la mairie. Beaux volumes mais inséré dans un tissu urbain dense. Murs mitoyens avec des immeubles d'habitation. PLU restrictif sur les nuisances sonores.",
-    image: "https://images.unsplash.com/photo-1558227691-41ea78d1f631?auto=format&fit=crop&w=800&q=80",
-    url: "https://www.agorastore.fr/ventes-aux-encheres/immobilier/terrain"
-  }
-];
-
 export default function App() {
-  const [properties] = useState(MOCK_PROPERTIES);
+  const [properties, setProperties] = useState<Property[]>([]);
   const [filterType, setFilterType] = useState('all');
   const [sortBy, setSortBy] = useState('score');
-  const [selectedProperty, setSelectedProperty] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
+  const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState('Jamais');
+
+  // Fonction pour récupérer les annonces depuis Supabase
+  const fetchProperties = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/properties?select=*`, {
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        }
+      });
+      
+      const rawData = await response.json();
+      
+      // On retransforme les minuscules de la base de données en format lisible pour l'interface
+      const formattedData: Property[] = rawData.map((item: any) => ({
+        ...item,
+        distanceParis: item.distanceparis,
+        timeGareDuNord: item.timegaredunord,
+        highwayAccess: item.highwayaccess,
+        residentialProximity: item.residentialproximity
+      }));
+
+      setProperties(formattedData);
+      setLastUpdated(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
+    } catch (error) {
+      console.error("Erreur lors de la connexion à la base de données:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Charger les données dès que l'application s'ouvre
+  useEffect(() => {
+    fetchProperties();
+  }, []);
 
   const handleRefresh = () => {
-    setIsLoading(true);
-    // Simulation de l'appel API vers le Scraper Python
-    setTimeout(() => {
-      setIsLoading(false);
-      setLastUpdated(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
-    }, 1500);
+    fetchProperties();
   };
 
   const filteredAndSortedProperties = useMemo(() => {
@@ -169,7 +145,7 @@ export default function App() {
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:text-blue-300 text-white px-4 py-1.5 rounded-full transition-colors font-bold shadow-sm"
             >
               <span className={isLoading ? "animate-spin" : ""}><Icons.RefreshCw /></span>
-              <span className="hidden md:inline">{isLoading ? "Recherche en cours..." : "Actualiser le marché"}</span>
+              <span className="hidden md:inline">{isLoading ? "Synchronisation en cours..." : "Actualiser le marché"}</span>
             </button>
           </div>
         </div>
@@ -180,23 +156,23 @@ export default function App() {
         {/* KPI DASHBOARD */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Biens Actifs</div>
+            <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Biens Actifs (Base de données)</div>
             <div className="text-2xl font-black text-slate-900">{filteredAndSortedProperties.length}</div>
           </div>
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Moyenne Prix/m²</div>
             <div className="text-2xl font-black text-blue-600">
-              {Math.round(filteredAndSortedProperties.reduce((acc, p) => acc + (p.price / p.surface_totale), 0) / (filteredAndSortedProperties.length || 1))} €
+              {filteredAndSortedProperties.length > 0 ? Math.round(filteredAndSortedProperties.reduce((acc, p) => acc + (p.price / p.surface_totale), 0) / filteredAndSortedProperties.length) : 0} €
             </div>
           </div>
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Moyenne Trajet Paris</div>
             <div className="text-2xl font-black text-emerald-600">
-              {Math.round(filteredAndSortedProperties.reduce((acc, p) => acc + p.timeGareDuNord, 0) / (filteredAndSortedProperties.length || 1))} min
+              {filteredAndSortedProperties.length > 0 ? Math.round(filteredAndSortedProperties.reduce((acc, p) => acc + p.timeGareDuNord, 0) / filteredAndSortedProperties.length) : 0} min
             </div>
           </div>
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Dernière extraction web</div>
+            <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Dernière mise à jour</div>
             <div className="text-2xl font-black text-slate-700 flex items-center gap-2">
               <Icons.Activity /> {lastUpdated}
             </div>
@@ -244,6 +220,14 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* LOADING STATE */}
+        {isLoading && properties.length === 0 && (
+          <div className="text-center py-20 text-slate-500">
+            <div className="animate-spin inline-block mb-4"><Icons.RefreshCw /></div>
+            <p>Connexion à la base de données en cours...</p>
+          </div>
+        )}
 
         {/* GRILLE */}
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
