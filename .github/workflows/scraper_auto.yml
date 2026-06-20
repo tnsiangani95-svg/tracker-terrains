@@ -1,0 +1,28 @@
+name: Scraper Quotidien
+
+# Quand ce robot doit-il s'activer ?
+on:
+  schedule:
+    # Tous les jours à 4h00 du matin (Heure UTC)
+    - cron: '0 4 * * *'
+  # L'option ci-dessous permet d'ajouter un bouton pour le lancer manuellement !
+  workflow_dispatch: 
+
+jobs:
+  execution-scraper:
+    runs-on: ubuntu-latest # Le serveur gratuit que GitHub nous prête
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v3
+
+      - name: Installer Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10' # Version de Python
+
+      - name: Installer les librairies (Supabase)
+        run: pip install -r requirements.txt
+
+      - name: Lancer la recherche immobilière !
+        run: python scraper.py
