@@ -7,10 +7,17 @@ import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-# Installation forcée du navigateur invisible ET de ses dépendances système pour GitHub Actions
+# Installation forcée du navigateur et des dépendances système
 os.system("playwright install chromium")
 os.system("playwright install-deps chromium")
+
 from playwright.sync_api import sync_playwright
+# Importation du bouclier anti-Datadome / anti-Cloudflare
+try:
+    from playwright_stealth import stealth_sync
+except ImportError:
+    os.system("pip install playwright-stealth")
+    from playwright_stealth import stealth_sync
 
 try:
     from supabase import create_client, Client
@@ -33,38 +40,30 @@ class RealPropertyScraper:
             self.db_connected = False
 
     def extract_price(self, text):
-        """Récupère tous les prix. Si aucun prix, renvoie 0 (Nous consulter)"""
-        # On nettoie tous les séparateurs pour transformer "1.500.000 €" ou "1 500 000 €" en "1500000€"
         clean_text = text.replace('\xa0', '').replace(' ', '').replace('.', '').replace(',', '')
         matches = re.findall(r'(\d+)€', clean_text)
         if matches:
-            prices = [int(m) for m in matches if int(m) < 100000000] # Plafond à 100M€ (évite les bugs)
+            prices = [int(m) for m in matches if int(m) < 100000000]
             if prices:
                 return max(prices)
         return 0 
 
     def extract_surface(self, text):
-        """Récupère toutes les surfaces, avec un plafond max pour éviter de prendre du texte institutionnel."""
         text = text.replace('\xa0', '').lower()
-        # On recolle les milliers : "10 000 m2" -> "10000 m2"
         text = re.sub(r'(?<=\d)\s+(?=\d)', '', text)
         surfaces = []
         
-        # Hectares
         matches_ha = re.findall(r'(\d+(?:[.,]\d+)?)\s*(?:hectares?|ha)\b', text)
         for m in matches_ha:
             val = float(m.replace(',', '.'))
             surfaces.append(int(val * 10000))
             
-        # m²
         matches_m2 = re.findall(r'(\d+(?:[.,]\d+)?)\s*m[²2]\b', text)
         for m in matches_m2:
-            # On supprime la virgule ou le point résiduel pour traiter ça comme un entier
             clean_m = m.replace('.', '').replace(',', '')
             surfaces.append(int(clean_m))
             
         if surfaces:
-            # Plafond anti-bug : 1 000 000 m² max (100 Ha). Au-delà, c'est sûrement une info réseau, pas un terrain unique.
             valid_surfaces = [s for s in surfaces if s < 1000000]
             if valid_surfaces:
                 return max(valid_surfaces)
@@ -77,7 +76,6 @@ class RealPropertyScraper:
         return "Île-de-France", "IDF"
 
     def get_real_route_osm(self, location_query):
-        """Calcule l'itinéraire kilométrique réel avec OpenStreetMap (Gratuit)"""
         try:
             geo_url = f"https://nominatim.openstreetmap.org/search?q={location_query},+Ile-de-France,+France&format=json&limit=1"
             headers = {'User-Agent': 'FoncierTracker/1.0'}
@@ -100,13 +98,12 @@ class RealPropertyScraper:
                 return round(distance_km, 1), round(duration_min)
                 
         except Exception as e:
-            print(f"      [!] Erreur OpenStreetMap: {e}")
+            print(f"      [!] Erreur OSM silencieuse: {e}")
         
         return 25, 45
 
     def estimate_metrics(self, text_content, code_postal, departement):
         text_lower = text_content.lower()
-        
         query = code_postal if code_postal != "Île-de-France" else f"Département {departement}"
         distanceparis, timegaredunord = self.get_real_route_osm(query)
         
@@ -138,37 +135,49 @@ class RealPropertyScraper:
             "https://www.paruvendu.fr/immobilier/vente/terrain/ile-de-france/"
         ]
 
-        print("Lancement du radar (Moteur Visuel Playwright actif pour briser les sécurités)...")
+        print("Lancement du radar (Mode Furtif : Stealth-Sync activé)...")
 
         with sync_playwright() as p:
-            # Arguments ajoutés pour empêcher les crashs sur le serveur Linux de GitHub
-            browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
-            page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            # Options approfondies pour contourner Datadome
+            browser = p.chromium.launch(
+                headless=True, 
+                args=[
+                    '--no-sandbox', 
+                    '--disable-setuid-sandbox',
+                    '--disable-blink-features=AutomationControlled'
+                ]
+            )
+            
+            # Simulation d'un écran et d'un navigateur parfaitement normal
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={'width': 1920, 'height': 1080}
+            )
+            
+            page = context.new_page()
+            stealth_sync(page) # ON ACTIVE LA CAPE D'INVISIBILITÉ
 
             for url in urls_a_visiter:
                 nom_site = url.split("www.")[-1].split(".")[0] if "www." in url else url.split("//")[-1].split(".")[0]
                 print(f"-> Navigation sur : {nom_site.upper()}")
                 
                 try:
-                    page.goto(url, timeout=60000)
-                    page.wait_for_timeout(5000) 
+                    # 'domcontentloaded' évite d'attendre les trackers qui bloquent le script (Cushman)
+                    page.goto(url, timeout=45000, wait_until='domcontentloaded')
+                    page.wait_for_timeout(4000) 
                     
                     html_content = page.content()
                     soup = BeautifulSoup(html_content, 'html.parser')
                     
-                    # On récupère tous les blocs ressemblant à des annonces
                     tous_les_blocs = soup.find_all(['div', 'article', 'li'], class_=re.compile(r'listing|card|property|item|annonce|result|box', re.IGNORECASE))
                     
-                    # FILTRE ANTI-FUSION : On ne garde que les cartes individuelles
                     cartes_individuelles = []
                     for bloc in tous_les_blocs:
                         sous_blocs = bloc.find_all(['div', 'article', 'li'], class_=re.compile(r'listing|card|property|item|annonce|result|box', re.IGNORECASE))
-                        # Si le bloc contient lui-même plein d'autres blocs, c'est la page globale (le wrapper). On le rejette.
                         if len(sous_blocs) > 2:
                             continue
                             
                         texte_bloc = bloc.get_text(separator=' ')
-                        # Sécurité supplémentaire : une simple annonce fait rarement plus de 3000 caractères
                         if len(texte_bloc) < 50 or len(texte_bloc) > 3000:
                             continue
                             
@@ -186,11 +195,19 @@ class RealPropertyScraper:
                         titre_elem = annonce.find(['h2', 'h3', 'div', 'a', 'span'], class_=re.compile(r'title|name|heading|titre', re.IGNORECASE))
                         titre = titre_elem.text.strip() if titre_elem else f"Opportunité Foncier {nom_site.capitalize()}"
 
+                        # CORRECTION MAJEURE SUR LA RECONSTRUCTION DES LIENS
                         lien_elem = annonce.find('a', href=True)
-                        lien_final = lien_elem['href'] if lien_elem else url
-                        if not lien_final.startswith('http'):
-                            domaine = "/".join(url.split("/")[:3])
-                            lien_final = domaine + lien_final
+                        if lien_elem:
+                            lien_brut = lien_elem['href'].strip()
+                            if lien_brut.startswith('http'):
+                                lien_final = lien_brut
+                            else:
+                                domaine = "/".join(url.split("/")[:3]) # Ex: https://www.geolocaux.com
+                                if not lien_brut.startswith('/'):
+                                    lien_brut = '/' + lien_brut
+                                lien_final = domaine + lien_brut
+                        else:
+                            lien_final = url
 
                         code_postal, departement = self.extract_postal_code(texte_complet)
                         dist_paris, acces_auto, tps_gare, prox_resid = self.estimate_metrics(texte_complet, code_postal, departement)
@@ -201,7 +218,7 @@ class RealPropertyScraper:
                             "id": f"{nom_site}_{unique_id}",
                             "title": titre[:100], 
                             "surface_totale": surface,
-                            "surface_batie": int(surface * 0.3), 
+                            "surface_batie": 0, # CORRECTION : Fini les valeurs inventées, on met 0 !
                             "price": prix, 
                             "location": code_postal,
                             "department": departement, 
@@ -217,7 +234,7 @@ class RealPropertyScraper:
                         extracted_properties.append(prop_data)
 
                 except Exception as e:
-                    print(f"   [!] Erreur (Timeout/JS) sur {nom_site} : {e}")
+                    print(f"   [!] Bouclier actif ou Erreur Timeout sur {nom_site} (Ignoré silencieusement)")
 
             browser.close()
 
@@ -256,7 +273,7 @@ class RealPropertyScraper:
         for prop in raw_properties:
             if self.filter_property(prop):
                 prop['score'] = self.calculate_score(prop)
-                prop['type'] = 'terrain_nu' if prop['surface_batie'] <= 1000 else 'bati'
+                prop['type'] = 'terrain_nu' # Par défaut car nous avons stoppé l'estimation factice du bâti
                 valid_properties.append(prop)
 
         unique_properties = []
