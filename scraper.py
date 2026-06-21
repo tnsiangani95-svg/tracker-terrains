@@ -3,14 +3,21 @@ import time
 import re
 import hashlib
 import requests
+import subprocess
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
-# Correction : Import simplifié pour éviter l'erreur de module
+# Installation automatique des navigateurs si manquants
+def install_playwright():
+    try:
+        subprocess.run(["playwright", "install", "chromium"], check=True)
+    except Exception as e:
+        print(f"Erreur lors de l'installation de Chromium: {e}")
+
+# Correction : Import simplifié
 try:
     from playwright_stealth import stealth_sync
 except ImportError:
-    # Si l'import direct échoue, on définit une fonction vide pour ne pas bloquer le script
     def stealth_sync(page):
         pass
 
@@ -25,6 +32,8 @@ class RealPropertyScraper:
         self.SUPABASE_URL = "https://xfhtrugwsovgfcphbdsd.supabase.co"
         self.SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmaHRydWd3c292Z2ZjcGhiZHNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5ODA0OTMsImV4cCI6MjA5NzU1NjQ5M30.dS8EbRjDrsHukbOo3Gih81M58hCs86RMHJXVIb9U4mg"
         self.supabase: Client = create_client(self.SUPABASE_URL, self.SUPABASE_KEY)
+        # Installation des navigateurs dès l'initialisation
+        install_playwright()
 
     def extract_image(self, annonce):
         img = annonce.find('img', src=True)
@@ -47,7 +56,6 @@ class RealPropertyScraper:
             browser = p.chromium.launch(headless=True)
             page = browser.new_context().new_page()
             
-            # Application de la cape d'invisibilité
             try:
                 stealth_sync(page)
             except:
