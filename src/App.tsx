@@ -49,9 +49,11 @@ export default function App() {
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState('En attente');
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const fetchProperties = async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       const response = await fetch(`${SUPABASE_URL}/rest/v1/properties?select=*`, {
         headers: {
@@ -62,18 +64,39 @@ export default function App() {
       
       const rawData = await response.json();
       
-      const formattedData: Property[] = rawData.map((item: any) => ({
-        ...item,
-        distanceParis: item.distanceparis,
-        timeGareDuNord: item.timegaredunord,
-        highwayAccess: item.highwayaccess,
-        residentialProximity: item.residentialproximity
-      }));
+      // PROTECTION ANTI-PAGE-BLANCHE : On vérifie que Supabase a bien renvoyé un tableau
+      if (!Array.isArray(rawData)) {
+         throw new Error("Format de données inattendu reçu de la base de données.");
+      }
+      
+      const formattedData: Property[] = rawData
+        .map((item: any) => ({
+          ...item,
+          // Fallbacks de sécurité: si une donnée est nulle, on met 0 par défaut
+          distanceParis: Number(item.distanceparis) || 0,
+          timeGareDuNord: Number(item.timegaredunord) || 0,
+          highwayAccess: Number(item.highwayaccess) || 0,
+          residentialProximity: Number(item.residentialproximity) || 0,
+          score: Number(item.score) || 0,
+          surface_totale: Number(item.surface_totale) || 0,
+          surface_batie: Number(item.surface_batie) || 0,
+          price: Number(item.price) || 0,
+          title: item.title || "Annonce sans titre",
+          image: item.image || "https://images.unsplash.com/photo-1586528116311-ad8ed3c84a0c?auto=format&fit=crop&w=800&q=80"
+        }))
+        .filter((item: Property) => {
+          if (item.surface_totale > 1000000) return false;
+          if (item.price > 100000000) return false;
+          if (item.surface_totale < 10200) return false;
+          return true;
+        });
 
       setProperties(formattedData);
       setLastUpdated(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erreur connexion Supabase:", error);
+      setFetchError(error.message);
+      setProperties([]);
     } finally {
       setIsLoading(false);
     }
@@ -97,10 +120,12 @@ export default function App() {
     result.sort((a, b) => {
       if (sortBy === 'score') return b.score - a.score;
       if (sortBy === 'price_sqm') {
-        // Pousse les biens sans prix à la fin du tri par prix
         if (a.price === 0) return 1;
         if (b.price === 0) return -1;
-        return (a.price / a.surface_totale) - (b.price / b.surface_totale);
+        // Protection division par 0
+        const priceA = a.surface_totale > 0 ? a.price / a.surface_totale : 0;
+        const priceB = b.surface_totale > 0 ? b.price / b.surface_totale : 0;
+        return priceA - priceB;
       }
       if (sortBy === 'surface') return b.surface_totale - a.surface_totale;
       if (sortBy === 'transport') return a.timeGareDuNord - b.timeGareDuNord;
@@ -110,19 +135,19 @@ export default function App() {
     return result;
   }, [properties, filterType, sortBy]);
 
-  // Calcul d'une moyenne de prix réaliste (en ignorant les prix à 0)
-  const propertiesWithPrice = filteredAndSortedProperties.filter(p => p.price > 0);
+  const propertiesWithPrice = filteredAndSortedProperties.filter(p => p.price > 0 && p.surface_totale > 0);
   const averagePriceSqm = propertiesWithPrice.length > 0 
     ? Math.round(propertiesWithPrice.reduce((acc, p) => acc + (p.price / p.surface_totale), 0) / propertiesWithPrice.length) 
     : 0;
 
   const StarRating = ({ score }: { score: number }) => {
+    const safeScore = isNaN(score) ? 0 : score;
     return (
       <div className="flex items-center bg-white/95 backdrop-blur px-3 py-1.5 rounded-lg shadow-sm border border-gray-100">
         {[1, 2, 3, 4, 5].map((star) => (
-          <Icons.Star key={star} filled={star <= Math.round(score)} />
+          <Icons.Star key={star} filled={star <= Math.round(safeScore)} />
         ))}
-        <span className="ml-2 font-black text-gray-800 text-lg">{score.toFixed(1)}</span>
+        <span className="ml-2 font-black text-gray-800 text-lg">{safeScore.toFixed(1)}</span>
       </div>
     );
   };
@@ -159,7 +184,13 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 mt-4">
         
-        {/* KPI DASHBOARD */}
+        {fetchError && (
+          <div className="bg-red-50 text-red-800 p-4 rounded-xl border border-red-200 mb-6 flex items-center gap-3">
+            <Icons.AlertTriangle />
+            <span>Erreur de récupération des données : {fetchError}</span>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Biens Actifs (DB)</div>
@@ -174,7 +205,7 @@ export default function App() {
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Moyenne Trajet Paris</div>
             <div className="text-2xl font-black text-emerald-600">
-              {filteredAndSortedProperties.length > 0 ? Math.round(filteredAndSortedProperties.reduce((acc, p) => acc + p.timeGareDuNord, 0) / filteredAndSortedProperties.length) : 0} min
+              {filteredAndSortedProperties.length > 0 ? Math.round(filteredAndSortedProperties.reduce((acc, p) => acc + (p.timeGareDuNord || 0), 0) / filteredAndSortedProperties.length) : 0} min
             </div>
           </div>
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
@@ -185,7 +216,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* FILTRES */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row gap-4 justify-between items-center">
           <div className="flex items-center gap-2 text-slate-600 font-medium">
             <span className="bg-blue-100 text-blue-800 py-1 px-3 rounded-lg text-sm">
@@ -227,7 +257,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* LOADING STATE */}
         {isLoading && properties.length === 0 && (
           <div className="text-center py-20 text-slate-500">
             <div className="animate-spin inline-block mb-4"><Icons.RefreshCw /></div>
@@ -235,13 +264,13 @@ export default function App() {
           </div>
         )}
 
-        {}
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           {filteredAndSortedProperties.map((prop) => (
             <article key={prop.id} className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-200 flex flex-col">
               
               <div className="relative h-56 w-full overflow-hidden bg-slate-200">
-                <img src={prop.image} alt={prop.title} className="w-full h-full object-cover" />
+                <img src={prop.image} alt={prop.title} className="w-full h-full object-cover" 
+                     onError={(e) => { e.currentTarget.src = "https://images.unsplash.com/photo-1586528116311-ad8ed3c84a0c?auto=format&fit=crop&w=800&q=80"; }} />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
                 
                 <div className="absolute top-4 left-4 flex gap-2">
@@ -274,7 +303,7 @@ export default function App() {
                   <div className="flex items-start">
                     <span className="mr-3 text-indigo-500 mt-0.5"><Icons.Ruler /></span>
                     <div>
-                      <span className="font-bold text-slate-800 text-base block">{prop.surface_totale.toLocaleString()} m²</span>
+                      <span className="font-bold text-slate-800 text-base block">{(prop.surface_totale || 0).toLocaleString()} m²</span>
                       <span className="text-xs font-medium text-slate-500">Surface Terrain</span>
                     </div>
                   </div>
@@ -283,7 +312,7 @@ export default function App() {
                     <div className="flex items-start">
                       <span className="mr-3 text-blue-500 mt-0.5"><Icons.Building /></span>
                       <div>
-                        <span className="font-bold text-slate-800 text-base block">{prop.surface_batie.toLocaleString()} m²</span>
+                        <span className="font-bold text-slate-800 text-base block">{(prop.surface_batie || 0).toLocaleString()} m²</span>
                         <span className="text-xs font-medium text-slate-500">Surface Bâtie</span>
                       </div>
                     </div>
@@ -346,7 +375,6 @@ export default function App() {
                 </div>
 
                 <div className="pt-4 border-t border-slate-100 flex justify-between items-end mt-auto">
-                  {/* AFFICHAGE DU PRIX SÉCURISÉ */}
                   <div>
                     <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Prix FAI</div>
                     <div className={`font-black tracking-tight ${prop.price === 0 ? 'text-xl text-slate-600' : 'text-2xl text-slate-900'}`}>
@@ -371,7 +399,6 @@ export default function App() {
         </div>
       </main>
 
-      {}
       {selectedProperty && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl relative">
@@ -386,6 +413,7 @@ export default function App() {
               src={selectedProperty.image} 
               alt={selectedProperty.title} 
               className="w-full h-64 object-cover"
+              onError={(e) => { e.currentTarget.src = "https://images.unsplash.com/photo-1586528116311-ad8ed3c84a0c?auto=format&fit=crop&w=800&q=80"; }}
             />
             
             <div className="p-6 md:p-8">
@@ -415,7 +443,7 @@ export default function App() {
                 </div>
                 <div>
                   <div className="text-sm text-slate-500 mb-1">Surface Terrain</div>
-                  <div className="text-xl font-bold text-slate-900">{selectedProperty.surface_totale.toLocaleString()} m²</div>
+                  <div className="text-xl font-bold text-slate-900">{(selectedProperty.surface_totale || 0).toLocaleString()} m²</div>
                 </div>
               </div>
 
