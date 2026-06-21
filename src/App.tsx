@@ -25,7 +25,6 @@ interface Property {
 const SUPABASE_URL = "https://xfhtrugwsovgfcphbdsd.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmaHRydWd3c292Z2ZjcGhiZHNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5ODA0OTMsImV4cCI6MjA5NzU1NjQ5M30.dS8EbRjDrsHukbOo3Gih81M58hCs86RMHJXVIb9U4mg";
 
-// --- ICÔNES SVG INTÉGRÉES ---
 const Icons = {
   MapPin: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>,
   Train: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="16" height="16" x="4" y="3" rx="2"/><path d="M4 11h16"/><path d="M12 3v8"/><path d="m8 19-2 3"/><path d="m18 22-2-3"/><path d="M8 15h0"/><path d="M16 15h0"/></svg>,
@@ -49,9 +48,8 @@ export default function App() {
   const [sortBy, setSortBy] = useState('score');
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState('Jamais');
+  const [lastUpdated, setLastUpdated] = useState('En attente');
 
-  // Fonction pour récupérer les annonces depuis Supabase
   const fetchProperties = async () => {
     setIsLoading(true);
     try {
@@ -64,7 +62,6 @@ export default function App() {
       
       const rawData = await response.json();
       
-      // On retransforme les minuscules de la base de données en format lisible pour l'interface
       const formattedData: Property[] = rawData.map((item: any) => ({
         ...item,
         distanceParis: item.distanceparis,
@@ -76,13 +73,12 @@ export default function App() {
       setProperties(formattedData);
       setLastUpdated(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
     } catch (error) {
-      console.error("Erreur lors de la connexion à la base de données:", error);
+      console.error("Erreur connexion Supabase:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Charger les données dès que l'application s'ouvre
   useEffect(() => {
     fetchProperties();
   }, []);
@@ -100,7 +96,12 @@ export default function App() {
 
     result.sort((a, b) => {
       if (sortBy === 'score') return b.score - a.score;
-      if (sortBy === 'price_sqm') return (a.price / a.surface_totale) - (b.price / b.surface_totale);
+      if (sortBy === 'price_sqm') {
+        // Pousse les biens sans prix à la fin du tri par prix
+        if (a.price === 0) return 1;
+        if (b.price === 0) return -1;
+        return (a.price / a.surface_totale) - (b.price / b.surface_totale);
+      }
       if (sortBy === 'surface') return b.surface_totale - a.surface_totale;
       if (sortBy === 'transport') return a.timeGareDuNord - b.timeGareDuNord;
       return 0;
@@ -108,6 +109,12 @@ export default function App() {
 
     return result;
   }, [properties, filterType, sortBy]);
+
+  // Calcul d'une moyenne de prix réaliste (en ignorant les prix à 0)
+  const propertiesWithPrice = filteredAndSortedProperties.filter(p => p.price > 0);
+  const averagePriceSqm = propertiesWithPrice.length > 0 
+    ? Math.round(propertiesWithPrice.reduce((acc, p) => acc + (p.price / p.surface_totale), 0) / propertiesWithPrice.length) 
+    : 0;
 
   const StarRating = ({ score }: { score: number }) => {
     return (
@@ -123,7 +130,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-12">
       
-      {/* HEADER */}
       <nav className="bg-slate-900 text-white p-4 sticky top-0 z-10 shadow-md">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3">
@@ -145,7 +151,7 @@ export default function App() {
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:text-blue-300 text-white px-4 py-1.5 rounded-full transition-colors font-bold shadow-sm"
             >
               <span className={isLoading ? "animate-spin" : ""}><Icons.RefreshCw /></span>
-              <span className="hidden md:inline">{isLoading ? "Synchronisation en cours..." : "Actualiser le marché"}</span>
+              <span className="hidden md:inline">{isLoading ? "Synchronisation base..." : "Actualiser depuis la DB"}</span>
             </button>
           </div>
         </div>
@@ -156,13 +162,13 @@ export default function App() {
         {/* KPI DASHBOARD */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Biens Actifs (Base de données)</div>
+            <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Biens Actifs (DB)</div>
             <div className="text-2xl font-black text-slate-900">{filteredAndSortedProperties.length}</div>
           </div>
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Moyenne Prix/m²</div>
             <div className="text-2xl font-black text-blue-600">
-              {filteredAndSortedProperties.length > 0 ? Math.round(filteredAndSortedProperties.reduce((acc, p) => acc + (p.price / p.surface_totale), 0) / filteredAndSortedProperties.length) : 0} €
+              {averagePriceSqm > 0 ? `${averagePriceSqm} €` : "N/A"}
             </div>
           </div>
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
@@ -225,16 +231,15 @@ export default function App() {
         {isLoading && properties.length === 0 && (
           <div className="text-center py-20 text-slate-500">
             <div className="animate-spin inline-block mb-4"><Icons.RefreshCw /></div>
-            <p>Connexion à la base de données en cours...</p>
+            <p>Connexion à Supabase en cours...</p>
           </div>
         )}
 
-        {/* GRILLE */}
+        {}
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           {filteredAndSortedProperties.map((prop) => (
             <article key={prop.id} className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-200 flex flex-col">
               
-              {/* IMAGE */}
               <div className="relative h-56 w-full overflow-hidden bg-slate-200">
                 <img src={prop.image} alt={prop.title} className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
@@ -263,7 +268,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CONTENU */}
               <div className="p-5 flex-1 flex flex-col">
                 
                 <div className="grid grid-cols-2 gap-4 mb-5 p-4 bg-slate-50 rounded-xl border border-slate-100">
@@ -320,11 +324,11 @@ export default function App() {
                       {prop.residentialProximity < 300 ? <Icons.AlertTriangle /> : <Icons.CheckCircle />}
                     </span>
                     <div>
-                      <div className="text-sm font-bold">Voisinage à {prop.residentialProximity} m</div>
+                      <div className="text-sm font-bold">Voisinage estimé à {prop.residentialProximity} m</div>
                       <div className="text-xs mt-0.5 opacity-80">
                         {prop.residentialProximity < 300 
-                          ? "Risque de nuisances sonores." 
-                          : "Isolement acoustique optimal."}
+                          ? "Risque potentiel de nuisances." 
+                          : "Bon isolement pour le projet."}
                       </div>
                     </div>
                   </div>
@@ -342,13 +346,14 @@ export default function App() {
                 </div>
 
                 <div className="pt-4 border-t border-slate-100 flex justify-between items-end mt-auto">
+                  {/* AFFICHAGE DU PRIX SÉCURISÉ */}
                   <div>
                     <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Prix FAI</div>
-                    <div className="text-2xl font-black text-slate-900 tracking-tight">
-                      {(prop.price / 1000000).toFixed(2)} M€
+                    <div className={`font-black tracking-tight ${prop.price === 0 ? 'text-xl text-slate-600' : 'text-2xl text-slate-900'}`}>
+                      {prop.price === 0 ? "Nous consulter" : `${(prop.price / 1000000).toFixed(2)} M€`}
                     </div>
                     <div className="text-sm font-medium text-slate-500 mt-0.5">
-                      {Math.round(prop.price / prop.surface_totale)} €/m²
+                      {prop.price === 0 ? "Prix sur demande" : `${Math.round(prop.price / prop.surface_totale)} €/m²`}
                     </div>
                   </div>
                   
@@ -366,7 +371,7 @@ export default function App() {
         </div>
       </main>
 
-      {/* POPUP DE DÉTAILS */}
+      {}
       {selectedProperty && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl relative">
@@ -385,7 +390,7 @@ export default function App() {
             
             <div className="p-6 md:p-8">
               <div className="flex items-center gap-3 mb-2">
-                 <span className="bg-slate-100 text-slate-700 px-3 py-1 rounded-lg text-sm font-bold">Réf: #{selectedProperty.id}</span>
+                 <span className="bg-slate-100 text-slate-700 px-3 py-1 rounded-lg text-sm font-bold">Réf: {selectedProperty.id.split('_')[0].toUpperCase()}</span>
                  <StarRating score={selectedProperty.score} />
               </div>
               
@@ -395,7 +400,7 @@ export default function App() {
               </div>
 
               <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 mb-8">
-                <h4 className="font-bold text-blue-900 mb-2">Analyse du site</h4>
+                <h4 className="font-bold text-blue-900 mb-2">Analyse IA de l'annonce</h4>
                 <p className="text-blue-800 text-sm leading-relaxed">
                   {selectedProperty.description}
                 </p>
@@ -404,7 +409,9 @@ export default function App() {
               <div className="grid grid-cols-2 gap-4 mb-8">
                 <div>
                   <div className="text-sm text-slate-500 mb-1">Prix de présentation</div>
-                  <div className="text-xl font-bold text-slate-900">{(selectedProperty.price / 1000000).toFixed(2)} M€</div>
+                  <div className="text-xl font-bold text-slate-900">
+                    {selectedProperty.price === 0 ? "Nous consulter" : `${(selectedProperty.price / 1000000).toFixed(2)} M€`}
+                  </div>
                 </div>
                 <div>
                   <div className="text-sm text-slate-500 mb-1">Surface Terrain</div>
