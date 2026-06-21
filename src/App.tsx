@@ -64,7 +64,7 @@ export default function App() {
       
       const rawData = await response.json();
       
-      // PROTECTION ANTI-PAGE-BLANCHE : On vérifie que Supabase a bien renvoyé un tableau
+      // PROTECTION ANTI-PAGE-BLANCHE STRICTE
       if (!Array.isArray(rawData)) {
          throw new Error("Format de données inattendu reçu de la base de données.");
       }
@@ -72,7 +72,7 @@ export default function App() {
       const formattedData: Property[] = rawData
         .map((item: any) => ({
           ...item,
-          // Fallbacks de sécurité: si une donnée est nulle, on met 0 par défaut
+          // Conversion stricte en nombre pour éviter les NaN mortels
           distanceParis: Number(item.distanceparis) || 0,
           timeGareDuNord: Number(item.timegaredunord) || 0,
           highwayAccess: Number(item.highwayaccess) || 0,
@@ -85,7 +85,8 @@ export default function App() {
           image: item.image || "https://images.unsplash.com/photo-1586528116311-ad8ed3c84a0c?auto=format&fit=crop&w=800&q=80"
         }))
         .filter((item: Property) => {
-          if (item.surface_totale > 1000000) return false;
+          // Double barrière de sécurité locale (en cas de fuite du Scraper)
+          if (item.surface_totale > 1000000) return false; 
           if (item.price > 100000000) return false;
           if (item.surface_totale < 10200) return false;
           return true;
@@ -113,28 +114,33 @@ export default function App() {
   const filteredAndSortedProperties = useMemo(() => {
     let result = [...properties];
 
+    // 1. Filtre par type
     if (filterType !== 'all') {
       result = result.filter(p => p.type === filterType);
     }
 
+    // 2. Tris mathématiques sécurisés
     result.sort((a, b) => {
-      if (sortBy === 'score') return b.score - a.score;
+      if (sortBy === 'score') return (b.score || 0) - (a.score || 0);
       if (sortBy === 'price_sqm') {
+        // Les annonces "Nous consulter" (prix à 0) vont à la fin
         if (a.price === 0) return 1;
         if (b.price === 0) return -1;
-        // Protection division par 0
+        
+        // Protection absolue contre la division par zéro
         const priceA = a.surface_totale > 0 ? a.price / a.surface_totale : 0;
         const priceB = b.surface_totale > 0 ? b.price / b.surface_totale : 0;
         return priceA - priceB;
       }
-      if (sortBy === 'surface') return b.surface_totale - a.surface_totale;
-      if (sortBy === 'transport') return a.timeGareDuNord - b.timeGareDuNord;
+      if (sortBy === 'surface') return (b.surface_totale || 0) - (a.surface_totale || 0);
+      if (sortBy === 'transport') return (a.timeGareDuNord || 0) - (b.timeGareDuNord || 0);
       return 0;
     });
 
     return result;
   }, [properties, filterType, sortBy]);
 
+  // Moyenne de prix sécurisée (exclut les annonces sans prix affiché)
   const propertiesWithPrice = filteredAndSortedProperties.filter(p => p.price > 0 && p.surface_totale > 0);
   const averagePriceSqm = propertiesWithPrice.length > 0 
     ? Math.round(propertiesWithPrice.reduce((acc, p) => acc + (p.price / p.surface_totale), 0) / propertiesWithPrice.length) 
@@ -155,6 +161,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-12">
       
+      {/* HEADER */}
       <nav className="bg-slate-900 text-white p-4 sticky top-0 z-10 shadow-md">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3">
@@ -184,13 +191,15 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 mt-4">
         
+        {/* BANDEAU D'ERREUR */}
         {fetchError && (
-          <div className="bg-red-50 text-red-800 p-4 rounded-xl border border-red-200 mb-6 flex items-center gap-3">
+          <div className="bg-red-50 text-red-800 p-4 rounded-xl border border-red-200 mb-6 flex items-center gap-3 shadow-sm">
             <Icons.AlertTriangle />
             <span>Erreur de récupération des données : {fetchError}</span>
           </div>
         )}
 
+        {/* KPI DASHBOARD */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Biens Actifs (DB)</div>
@@ -199,7 +208,7 @@ export default function App() {
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Moyenne Prix/m²</div>
             <div className="text-2xl font-black text-blue-600">
-              {averagePriceSqm > 0 ? `${averagePriceSqm} €` : "N/A"}
+              {averagePriceSqm > 0 ? `${averagePriceSqm.toLocaleString('fr-FR')} €` : "N/A"}
             </div>
           </div>
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
@@ -216,6 +225,7 @@ export default function App() {
           </div>
         </div>
 
+        {/* BARRE DE FILTRES ET TRIS */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row gap-4 justify-between items-center">
           <div className="flex items-center gap-2 text-slate-600 font-medium">
             <span className="bg-blue-100 text-blue-800 py-1 px-3 rounded-lg text-sm">
@@ -224,7 +234,7 @@ export default function App() {
           </div>
           
           <div className="flex flex-wrap gap-3 w-full md:w-auto">
-            <div className="flex-1 md:flex-none relative bg-slate-50 border border-slate-200 rounded-lg">
+            <div className="flex-1 md:flex-none relative bg-slate-50 border border-slate-200 rounded-lg hover:border-blue-400 transition-colors">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                 <Icons.Filter />
               </div>
@@ -239,7 +249,7 @@ export default function App() {
               </select>
             </div>
 
-            <div className="flex-1 md:flex-none relative bg-slate-50 border border-slate-200 rounded-lg">
+            <div className="flex-1 md:flex-none relative bg-slate-50 border border-slate-200 rounded-lg hover:border-blue-400 transition-colors">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                 <Icons.ArrowUpDown />
               </div>
@@ -257,20 +267,26 @@ export default function App() {
           </div>
         </div>
 
-        {isLoading && properties.length === 0 && (
+        {/* LOADING INDICATOR */}
+        {isLoading && properties.length === 0 && !fetchError && (
           <div className="text-center py-20 text-slate-500">
             <div className="animate-spin inline-block mb-4"><Icons.RefreshCw /></div>
             <p>Connexion à Supabase en cours...</p>
           </div>
         )}
 
+        {/* GRILLE DES ANNONCES */}
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           {filteredAndSortedProperties.map((prop) => (
             <article key={prop.id} className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-200 flex flex-col">
               
               <div className="relative h-56 w-full overflow-hidden bg-slate-200">
-                <img src={prop.image} alt={prop.title} className="w-full h-full object-cover" 
-                     onError={(e) => { e.currentTarget.src = "https://images.unsplash.com/photo-1586528116311-ad8ed3c84a0c?auto=format&fit=crop&w=800&q=80"; }} />
+                <img 
+                    src={prop.image} 
+                    alt={prop.title} 
+                    className="w-full h-full object-cover" 
+                    onError={(e) => { e.currentTarget.src = "https://images.unsplash.com/photo-1586528116311-ad8ed3c84a0c?auto=format&fit=crop&w=800&q=80"; }} 
+                />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
                 
                 <div className="absolute top-4 left-4 flex gap-2">
@@ -289,7 +305,7 @@ export default function App() {
                 </div>
 
                 <div className="absolute bottom-4 left-4 right-24 text-white">
-                   <h3 className="font-bold text-lg leading-tight drop-shadow-md">{prop.title}</h3>
+                   <h3 className="font-bold text-lg leading-tight drop-shadow-md line-clamp-2">{prop.title}</h3>
                    <div className="flex items-center text-sm mt-1 opacity-90">
                      <span className="mr-1"><Icons.MapPin /></span>
                      {prop.location} ({prop.distanceParis} km)
@@ -303,7 +319,7 @@ export default function App() {
                   <div className="flex items-start">
                     <span className="mr-3 text-indigo-500 mt-0.5"><Icons.Ruler /></span>
                     <div>
-                      <span className="font-bold text-slate-800 text-base block">{(prop.surface_totale || 0).toLocaleString()} m²</span>
+                      <span className="font-bold text-slate-800 text-base block">{(prop.surface_totale || 0).toLocaleString('fr-FR')} m²</span>
                       <span className="text-xs font-medium text-slate-500">Surface Terrain</span>
                     </div>
                   </div>
@@ -312,7 +328,7 @@ export default function App() {
                     <div className="flex items-start">
                       <span className="mr-3 text-blue-500 mt-0.5"><Icons.Building /></span>
                       <div>
-                        <span className="font-bold text-slate-800 text-base block">{(prop.surface_batie || 0).toLocaleString()} m²</span>
+                        <span className="font-bold text-slate-800 text-base block">{(prop.surface_batie || 0).toLocaleString('fr-FR')} m²</span>
                         <span className="text-xs font-medium text-slate-500">Surface Bâtie</span>
                       </div>
                     </div>
@@ -378,10 +394,10 @@ export default function App() {
                   <div>
                     <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Prix FAI</div>
                     <div className={`font-black tracking-tight ${prop.price === 0 ? 'text-xl text-slate-600' : 'text-2xl text-slate-900'}`}>
-                      {prop.price === 0 ? "Nous consulter" : `${(prop.price / 1000000).toFixed(2)} M€`}
+                      {prop.price === 0 ? "Nous consulter" : `${(prop.price / 1000000).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M€`}
                     </div>
                     <div className="text-sm font-medium text-slate-500 mt-0.5">
-                      {prop.price === 0 ? "Prix sur demande" : `${Math.round(prop.price / prop.surface_totale)} €/m²`}
+                      {prop.price === 0 ? "Prix sur demande" : `${Math.round(prop.price / prop.surface_totale).toLocaleString('fr-FR')} €/m²`}
                     </div>
                   </div>
                   
@@ -399,12 +415,13 @@ export default function App() {
         </div>
       </main>
 
+      {/* FENÊTRE MODALE DE DÉTAILS */}
       {selectedProperty && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl relative">
             <button 
               onClick={() => setSelectedProperty(null)}
-              className="absolute top-4 right-4 bg-white/80 hover:bg-slate-100 rounded-full w-8 h-8 flex items-center justify-center z-10 text-slate-800 font-bold"
+              className="absolute top-4 right-4 bg-white/80 hover:bg-slate-100 rounded-full w-8 h-8 flex items-center justify-center z-10 text-slate-800 font-bold transition-colors"
             >
               ✕
             </button>
@@ -418,7 +435,9 @@ export default function App() {
             
             <div className="p-6 md:p-8">
               <div className="flex items-center gap-3 mb-2">
-                 <span className="bg-slate-100 text-slate-700 px-3 py-1 rounded-lg text-sm font-bold">Réf: {selectedProperty.id.split('_')[0].toUpperCase()}</span>
+                 <span className="bg-slate-100 text-slate-700 px-3 py-1 rounded-lg text-sm font-bold border border-slate-200">
+                    Réf: {selectedProperty.id.split('_')[0].toUpperCase()}
+                 </span>
                  <StarRating score={selectedProperty.score} />
               </div>
               
@@ -428,22 +447,24 @@ export default function App() {
               </div>
 
               <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 mb-8">
-                <h4 className="font-bold text-blue-900 mb-2">Analyse IA de l'annonce</h4>
+                <h4 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
+                   <Icons.Info /> Analyse IA de l'annonce
+                </h4>
                 <p className="text-blue-800 text-sm leading-relaxed">
                   {selectedProperty.description}
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-8">
-                <div>
-                  <div className="text-sm text-slate-500 mb-1">Prix de présentation</div>
-                  <div className="text-xl font-bold text-slate-900">
-                    {selectedProperty.price === 0 ? "Nous consulter" : `${(selectedProperty.price / 1000000).toFixed(2)} M€`}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <div className="text-sm font-bold text-slate-500 mb-1 uppercase tracking-wider">Prix de présentation</div>
+                  <div className="text-xl font-black text-slate-900">
+                    {selectedProperty.price === 0 ? "Nous consulter" : `${(selectedProperty.price / 1000000).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M€`}
                   </div>
                 </div>
-                <div>
-                  <div className="text-sm text-slate-500 mb-1">Surface Terrain</div>
-                  <div className="text-xl font-bold text-slate-900">{(selectedProperty.surface_totale || 0).toLocaleString()} m²</div>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <div className="text-sm font-bold text-slate-500 mb-1 uppercase tracking-wider">Surface Terrain</div>
+                  <div className="text-xl font-black text-slate-900">{(selectedProperty.surface_totale || 0).toLocaleString('fr-FR')} m²</div>
                 </div>
               </div>
 
@@ -451,9 +472,9 @@ export default function App() {
                 href={selectedProperty.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold text-lg transition-colors flex justify-center items-center gap-2"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold text-lg transition-colors flex justify-center items-center gap-2 shadow-md hover:shadow-lg"
               >
-                Aller sur l'annonce originale <Icons.ExternalLink />
+                Consulter l'annonce officielle <Icons.ExternalLink />
               </a>
             </div>
           </div>
