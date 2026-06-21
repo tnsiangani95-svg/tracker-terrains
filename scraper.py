@@ -7,8 +7,9 @@ import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-# Installation forcée du navigateur invisible (Playwright) sur le serveur GitHub
+# Installation forcée du navigateur invisible ET de ses dépendances système pour GitHub Actions
 os.system("playwright install chromium")
+os.system("playwright install-deps chromium")
 from playwright.sync_api import sync_playwright
 
 try:
@@ -33,30 +34,40 @@ class RealPropertyScraper:
 
     def extract_price(self, text):
         """Récupère tous les prix. Si aucun prix, renvoie 0 (Nous consulter)"""
-        text = text.replace('\xa0', '').replace(' ', '').replace('.', '')
-        matches = re.findall(r'(\d+)€', text)
+        # On nettoie tous les séparateurs pour transformer "1.500.000 €" ou "1 500 000 €" en "1500000€"
+        clean_text = text.replace('\xa0', '').replace(' ', '').replace('.', '').replace(',', '')
+        matches = re.findall(r'(\d+)€', clean_text)
         if matches:
-            prices = [int(m) for m in matches]
-            return max(prices)
+            prices = [int(m) for m in matches if int(m) < 100000000] # Plafond à 100M€ (évite les bugs)
+            if prices:
+                return max(prices)
         return 0 
 
     def extract_surface(self, text):
-        """Récupère toutes les surfaces pour identifier le terrain global (la plus grande valeur)"""
-        text = text.replace('\xa0', '').replace(' ', '').lower()
+        """Récupère toutes les surfaces, avec un plafond max pour éviter de prendre du texte institutionnel."""
+        text = text.replace('\xa0', '').lower()
+        # On recolle les milliers : "10 000 m2" -> "10000 m2"
+        text = re.sub(r'(?<=\d)\s+(?=\d)', '', text)
         surfaces = []
         
-        matches_ha = re.findall(r'(\d+(?:[.,]\d+)?)(?:hectares?|ha)', text)
+        # Hectares
+        matches_ha = re.findall(r'(\d+(?:[.,]\d+)?)\s*(?:hectares?|ha)\b', text)
         for m in matches_ha:
             val = float(m.replace(',', '.'))
             surfaces.append(int(val * 10000))
             
-        matches_m2 = re.findall(r'(\d+(?:[.,]\d+)?)m[²2]', text)
+        # m²
+        matches_m2 = re.findall(r'(\d+(?:[.,]\d+)?)\s*m[²2]\b', text)
         for m in matches_m2:
-            val = float(m.replace(',', '.'))
-            surfaces.append(int(val))
+            # On supprime la virgule ou le point résiduel pour traiter ça comme un entier
+            clean_m = m.replace('.', '').replace(',', '')
+            surfaces.append(int(clean_m))
             
         if surfaces:
-            return max(surfaces)
+            # Plafond anti-bug : 1 000 000 m² max (100 Ha). Au-delà, c'est sûrement une info réseau, pas un terrain unique.
+            valid_surfaces = [s for s in surfaces if s < 1000000]
+            if valid_surfaces:
+                return max(valid_surfaces)
         return 0
 
     def extract_postal_code(self, text):
@@ -70,7 +81,7 @@ class RealPropertyScraper:
         try:
             geo_url = f"https://nominatim.openstreetmap.org/search?q={location_query},+Ile-de-France,+France&format=json&limit=1"
             headers = {'User-Agent': 'FoncierTracker/1.0'}
-            time.sleep(1.5) # Politesse envers le serveur gratuit
+            time.sleep(1.5)
             geo_resp = requests.get(geo_url, headers=headers).json()
 
             if not geo_resp:
@@ -94,7 +105,6 @@ class RealPropertyScraper:
         return 25, 45
 
     def estimate_metrics(self, text_content, code_postal, departement):
-        """Associe la cartographie API à l'analyse textuelle"""
         text_lower = text_content.lower()
         
         query = code_postal if code_postal != "Île-de-France" else f"Département {departement}"
@@ -131,7 +141,8 @@ class RealPropertyScraper:
         print("Lancement du radar (Moteur Visuel Playwright actif pour briser les sécurités)...")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            # Arguments ajoutés pour empêcher les crashs sur le serveur Linux de GitHub
+            browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
             page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
             for url in urls_a_visiter:
@@ -139,22 +150,36 @@ class RealPropertyScraper:
                 print(f"-> Navigation sur : {nom_site.upper()}")
                 
                 try:
-                    # Navigation et attente du chargement Javascript
                     page.goto(url, timeout=60000)
-                    page.wait_for_timeout(4000) 
+                    page.wait_for_timeout(5000) 
                     
                     html_content = page.content()
                     soup = BeautifulSoup(html_content, 'html.parser')
                     
-                    annonces_html = soup.find_all(['div', 'article', 'li'], class_=re.compile(r'listing|card|property|item|annonce|result|box', re.IGNORECASE))
+                    # On récupère tous les blocs ressemblant à des annonces
+                    tous_les_blocs = soup.find_all(['div', 'article', 'li'], class_=re.compile(r'listing|card|property|item|annonce|result|box', re.IGNORECASE))
                     
-                    for annonce in annonces_html:
+                    # FILTRE ANTI-FUSION : On ne garde que les cartes individuelles
+                    cartes_individuelles = []
+                    for bloc in tous_les_blocs:
+                        sous_blocs = bloc.find_all(['div', 'article', 'li'], class_=re.compile(r'listing|card|property|item|annonce|result|box', re.IGNORECASE))
+                        # Si le bloc contient lui-même plein d'autres blocs, c'est la page globale (le wrapper). On le rejette.
+                        if len(sous_blocs) > 2:
+                            continue
+                            
+                        texte_bloc = bloc.get_text(separator=' ')
+                        # Sécurité supplémentaire : une simple annonce fait rarement plus de 3000 caractères
+                        if len(texte_bloc) < 50 or len(texte_bloc) > 3000:
+                            continue
+                            
+                        cartes_individuelles.append(bloc)
+
+                    for annonce in cartes_individuelles:
                         texte_complet = annonce.get_text(separator=' ')
 
                         prix = self.extract_price(texte_complet)
                         surface = self.extract_surface(texte_complet)
 
-                        # Si on ne trouve pas de surface, c'est une fausse alerte.
                         if surface == 0:
                             continue
 
@@ -177,7 +202,7 @@ class RealPropertyScraper:
                             "title": titre[:100], 
                             "surface_totale": surface,
                             "surface_batie": int(surface * 0.3), 
-                            "price": prix, # Peut être égal à 0 (Nous consulter)
+                            "price": prix, 
                             "location": code_postal,
                             "department": departement, 
                             "distanceparis": dist_paris,
@@ -192,7 +217,7 @@ class RealPropertyScraper:
                         extracted_properties.append(prop_data)
 
                 except Exception as e:
-                    print(f"   [!] Timeout ou page inaccessible sur {nom_site} : {e}")
+                    print(f"   [!] Erreur (Timeout/JS) sur {nom_site} : {e}")
 
             browser.close()
 
@@ -207,7 +232,7 @@ class RealPropertyScraper:
         elif prop['residentialproximity'] >= 200: score += 0.8
             
         if prop['price'] == 0:
-            score += 1.0 # Biais neutre pour les offres "Off-Market"
+            score += 1.0 
         else:
             prix_m2 = prop['price'] / prop['surface_totale']
             if prix_m2 < 150: score += 2.0
@@ -216,10 +241,9 @@ class RealPropertyScraper:
         return min(round(score, 1), 5.0)
 
     def filter_property(self, prop):
-        """Dernière barrière de sécurité avant la base de données"""
         if not (prop['surface_totale'] >= self.MIN_TERRAIN): 
             return False
-        if prop['price'] > 100000000: # Protection contre les fausses lectures de 100M€
+        if prop['price'] > 100000000: 
             return False
         if prop['department'] not in ['75', '77', '78', '91', '92', '93', '94', '95', 'IDF']:
             return False
@@ -235,7 +259,6 @@ class RealPropertyScraper:
                 prop['type'] = 'terrain_nu' if prop['surface_batie'] <= 1000 else 'bati'
                 valid_properties.append(prop)
 
-        # Dédoublonnage exact
         unique_properties = []
         seen_ids = set()
         for p in valid_properties:
@@ -244,24 +267,20 @@ class RealPropertyScraper:
                 seen_ids.add(p['id'])
 
         print(f"\n--- BILAN DE LA CHASSE ---")
-        print(f"Annonces trouvées : {len(raw_properties)}")
+        print(f"Annonces isolées (brutes) : {len(raw_properties)}")
         print(f"Annonces parfaites (>10 200m²) : {len(unique_properties)}")
 
         if self.db_connected and unique_properties:
             print("Nettoyage de l'historique Supabase en cours...")
             try:
-                # 1. On purge la base existante pour faire place nette
                 self.supabase.table('properties').delete().neq("id", "0").execute()
-                
                 print("Envoi des nouvelles pépites en ligne...")
-                # 2. On insère uniquement le marché actuel
                 self.supabase.table('properties').upsert(unique_properties).execute()
-                
                 print("✅ Succès total ! Le tableau de bord Vercel est prêt.")
             except Exception as e:
                 print(f"❌ Erreur lors de la synchronisation : {e}")
         else:
-             print("Aucune donnée insérée (Marché vide ou erreur de connexion). L'ancienne BDD est conservée par sécurité.")
+             print("Aucune donnée insérée. L'ancienne BDD est conservée par sécurité.")
 
 if __name__ == "__main__":
     scorer = RealPropertyScraper()
